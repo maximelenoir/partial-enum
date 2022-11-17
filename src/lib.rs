@@ -11,6 +11,55 @@ use syn::{
 
 mod permutation;
 
+/// Create the partial version of this enum.
+///
+/// This macro generates another enum of the same name, in a sub-module called
+/// `partial`. This enum have the same variant identifiers as the original but
+/// each associated type is now generic: an enum with `N` variants will have `N`
+/// generic parameters. Each of those types can be instantiated with either the
+/// original type or the never type `!`. No other type can be substituted. This
+/// effectively creates an enum capable of disabling several variants. The enum
+/// with no disabled variant is functionally equivalent to the original enum.
+///
+/// # Restrictions
+///
+/// Some restrictions are applied on the original enum for the macro to work:
+///
+/// * generic parameters are not supported
+/// * named variant are not supported
+/// * unit variant are not supported
+/// * unnamed variants must only contain one type
+///
+/// # Example
+///
+/// The following `derive` statement:
+///
+/// ```rust
+/// #[derive(partial_enum::Enum)]
+/// enum Error {
+///     Foo(Foo),
+///     Bar(Bar),
+/// }
+/// ```
+///
+/// will generate the following enum:
+///
+/// ```rust
+/// mod partial {
+///     enum Error<Foo, Bar> {
+///         Foo(Foo),
+///         Bar(Bar),
+///     }
+/// }
+/// ```
+///
+/// where `Foo` can only be instantiated by `Foo` or `!` and `Bar` can only be
+/// instantiated by `Bar` or `!`. `From` implementations are provided for all
+/// valid morphisms: such conversion is valid if and only if, for each variant
+/// type, we never go from a non-`!` type to the `!` type. This would otherwise
+/// allow to forget this variant and pretend we can never match on it. The
+/// compiler will rightfully complains that we're trying to instantiate an
+/// uninhabited type.
 #[proc_macro_derive(Enum)]
 pub fn derive_error(item: TokenStream) -> TokenStream {
     let e: Enum = syn::parse_macro_input!(item as Enum);
