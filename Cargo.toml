@@ -1,7 +1,13 @@
 [package]
 name = "partial-enum"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+license = "MIT"
+description = "proc-macro generating partially inhabited enums"
+homepage = "https://github.com/maximelenoir/partial-enum"
+documentation = "https://docs.rs/partial-enum"
+repository = "https://github.com/maximelenoir/partial-enum"
+readme = "README.md"
 
 [lib]
 proc-macro = true
