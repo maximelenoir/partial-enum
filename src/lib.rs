@@ -1,3 +1,153 @@
+#![feature(never_type)]
+#![feature(exhaustive_patterns)]
+
+//! A proc-macro for generating partial enums from a template enum. This partial
+//! enum contains the same number of variants as the template but can disable a
+//! subset of these variants at compile time. The goal is used specialize enum
+//! with finer-grained variant set for each API.
+//!
+//! This is useful for handling errors. A common pattern is to define an enum
+//! with all possible errors and use this for the entire API surface. Albeit
+//! simple, this representation can fail to represent exact error scenarii by
+//! allowing errors that can not happen.
+//!
+//! Take an API responsible for decoding messages from a socket.
+//!
+//! ```
+//! # struct ConnectError;
+//! # struct ReadError;
+//! # struct DecodeError;
+//! # struct Socket;
+//! # struct Bytes;
+//! # struct Message;
+//! enum Error {
+//!     Connect(ConnectError),
+//!     Read(ReadError),
+//!     Decode(DecodeError),
+//! }
+//!
+//! fn connect() -> Result<Socket, Error> { Ok(Socket) }
+//! fn read(sock: &mut Socket) -> Result<Bytes, Error> { Ok(Bytes) }
+//! fn decode(bytes: Bytes) -> Result<Message, Error> { Err(Error::Decode(DecodeError)) }
+//! ```
+//!
+//! The same error enum is used all over the place and exposes variants that do
+//! not match the API: `decode` returns a `DecodeError` but nothing prevents
+//! from returning a `ConnectError`. For such low-level API, we could substitute
+//! `Error` by their matching error like `ConnectError` for `connect`. The
+//! downside is that composing with such functions forces us to redefine custom
+//! enums:
+//!
+//! ```
+//! # struct ReadError;
+//! # struct DecodeError;
+//! # struct Socket;
+//! # struct Bytes;
+//! # struct Message;
+//! enum NextMessageError {
+//!     Read(ReadError),
+//!     Decode(DecodeError),
+//! }
+//!
+//! impl From<ReadError> for NextMessageError {
+//!     fn from(err: ReadError) -> Self {
+//!         NextMessageError::Read(err)
+//!     }
+//! }
+//!
+//! impl From<DecodeError> for NextMessageError {
+//!     fn from(err: DecodeError) -> Self {
+//!         NextMessageError::Decode(err)
+//!     }
+//! }
+//!
+//! fn read(sock: &mut Socket) -> Result<Bytes, ReadError> { Ok(Bytes) }
+//! fn decode(bytes: Bytes) -> Result<Message, DecodeError> { Err(DecodeError) }
+//! fn next_message(sock: &mut Socket) -> Result<Message, NextMessageError> {
+//!     let payload = read(sock)?;
+//!     let message = decode(payload)?;
+//!     Ok(message)
+//! }
+//! ```
+//!
+//! This proc-macro intend to ease the composition of APIs that does not share
+//! the exact same errors by generating a new generic enum where each variant
+//! can be disabled one by one. We can then redefine our API like so:
+//!
+//! ```
+//! # #![feature(never_type)]
+//! # mod example {
+//! # struct ConnectError;
+//! # struct ReadError;
+//! # struct DecodeError;
+//! # struct Socket;
+//! # struct Bytes;
+//! # struct Message;
+//! #[derive(partial_enum::Enum)]
+//! enum Error {
+//!     Connect(ConnectError),
+//!     Read(ReadError),
+//!     Decode(DecodeError),
+//! }
+//!
+//! use partial::Error as E;
+//!
+//! fn connect() -> Result<Socket, E<ConnectError, !, !>> { Ok(Socket) }
+//! fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> { Ok(Bytes) }
+//! fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(E::Decode(DecodeError)) }
+//! fn next_message(sock: &mut Socket) -> Result<Message, E<!, ReadError, DecodeError>> {
+//!     let payload = read(sock)?;
+//!     let message = decode(payload)?;
+//!     Ok(message)
+//! }
+//! # }
+//! ```
+//!
+//! Notice that the `next_message` implementation is unaltered and the signature
+//! clearly states that only `ReadError` and `DecodeError` can be returned. The
+//! callee would never be able to match on `Error::Connect`. By using the
+//! nightly feature `exhaustive_patterns`, the match statement does not even
+//! need to write the disabled variants.
+//!
+//! ```
+//! #![feature(exhaustive_patterns)]
+//! # #![feature(never_type)]
+//! # mod example {
+//! # struct ConnectError;
+//! # struct ReadError;
+//! # struct DecodeError;
+//! # struct Socket;
+//! # struct Bytes;
+//! # struct Message;
+//! # #[derive(partial_enum::Enum)]
+//! # enum Error {
+//! #     Connect(ConnectError),
+//! #     Read(ReadError),
+//! #     Decode(DecodeError),
+//! # }
+//! # use partial::Error as E;
+//! # fn connect() -> Result<Socket, E<ConnectError, !, !>> { Ok(Socket) }
+//! # fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> { Ok(Bytes) }
+//! # fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(E::Decode(DecodeError)) }
+//! # fn next_message(sock: &mut Socket) -> Result<Message, E<!, ReadError, DecodeError>> {
+//! #     let payload = read(sock)?;
+//! #     let message = decode(payload)?;
+//! #     Ok(message)
+//! # }
+//! fn read_one_message() -> Result<Message, Error> {
+//!     let mut socket = connect()?;
+//!     match next_message(&mut socket) {
+//!         Ok(msg) => Ok(msg),
+//!         Err(E::Read(_)) => {
+//!             // Retry...
+//!             next_message(&mut socket).map_err(Error::from)
+//!         }
+//!         Err(E::Decode(err)) => Err(Error::Decode(err)),
+//!     }
+//! }
+//! # }
+//! ```
+
 extern crate proc_macro;
 use permutation::Permutations;
 use proc_macro::TokenStream;
@@ -34,17 +184,22 @@ mod permutation;
 ///
 /// The following `derive` statement:
 ///
-/// ```rust
+/// ```
+/// # #![feature(never_type)]
+/// # mod example {
+/// # struct Foo;
+/// # struct Bar;
 /// #[derive(partial_enum::Enum)]
 /// enum Error {
 ///     Foo(Foo),
 ///     Bar(Bar),
 /// }
+/// # }
 /// ```
 ///
 /// will generate the following enum:
 ///
-/// ```rust
+/// ```
 /// mod partial {
 ///     enum Error<Foo, Bar> {
 ///         Foo(Foo),
