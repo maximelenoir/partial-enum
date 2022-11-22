@@ -94,7 +94,7 @@
 //!
 //! fn connect() -> Result<Socket, E<ConnectError, !, !>> { Ok(Socket) }
 //! fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> { Ok(Bytes) }
-//! fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(E::Decode(DecodeError)) }
+//! fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(DecodeError)? }
 //! fn next_message(sock: &mut Socket) -> Result<Message, E<!, ReadError, DecodeError>> {
 //!     let payload = read(sock)?;
 //!     let message = decode(payload)?;
@@ -105,7 +105,8 @@
 //!
 //! Notice that the `next_message` implementation is unaltered and the signature
 //! clearly states that only `ReadError` and `DecodeError` can be returned. The
-//! callee would never be able to match on `Error::Connect`. By using the
+//! callee would never be able to match on `Error::Connect`. The `decode` implementation
+//! uses the `?` operator to convert `DecodeError` to the partial enum. By using the
 //! nightly feature `exhaustive_patterns`, the match statement does not even
 //! need to write the disabled variants.
 //!
@@ -128,7 +129,7 @@
 //! # use partial::Error as E;
 //! # fn connect() -> Result<Socket, E<ConnectError, !, !>> { Ok(Socket) }
 //! # fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> { Ok(Bytes) }
-//! # fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(E::Decode(DecodeError)) }
+//! # fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(DecodeError)? }
 //! # fn next_message(sock: &mut Socket) -> Result<Message, E<!, ReadError, DecodeError>> {
 //! #     let payload = read(sock)?;
 //! #     let message = decode(payload)?;
@@ -327,6 +328,35 @@ impl Enum {
                     }
                 }
 
+            ));
+        }
+
+        // Implement conversion from a single variant type to any partial enum.
+        // The only constrain is that the corresponding variant type cannot be
+        // generic.
+        for (idx, (variant_type, variant_ident)) in
+            variant_types.iter().zip(&variant_idents).enumerate()
+        {
+            // Generate the destination type which is the generic version of the
+            // partial enum with the concrete type as the `idx`th position.
+            let (left, mut right) = variant_generics.split_at(idx);
+            if let &[_, ref right_1 @ ..] = right {
+                right = right_1;
+            }
+            let to_type = quote::quote!(#enum_name<#(#left,)* #variant_type, #(#right),*>);
+
+            // The `idx`th generic parameter is removed because it is a concrete type for this conversion.
+            let mut variant_generics = variant_generics.clone();
+            let mut variant_traits = variant_traits.clone();
+            variant_generics.remove(idx);
+            variant_traits.remove(idx);
+
+            from_impls.push(quote::quote!(
+                impl<#(#variant_generics: #variant_traits),*> From<#variant_type> for #to_type {
+                    fn from(value: #variant_type) -> Self {
+                        Self::#variant_ident(value)
+                    }
+                }
             ));
         }
 

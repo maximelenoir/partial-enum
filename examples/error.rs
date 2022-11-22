@@ -19,7 +19,7 @@ impl Connection {
 
     fn write(&mut self, msg: &[u8]) -> Result<(), partial::Error<!, WriteError>> {
         match msg {
-            b"bar" => Err(partial::Error::Write(WriteError)),
+            b"bar" => Err(WriteError)?,
             _ => Ok(()),
         }
     }
@@ -41,5 +41,8 @@ fn send_messages(msg: &[u8], msg2: &[u8]) -> Result<(), Error> {
 }
 
 fn main() {
-    assert!(matches!(send_messages(b"foo", b"bar"), Err(Error::Write(_))));
+    assert!(matches!(
+        send_messages(b"foo", b"bar"),
+        Err(Error::Write(_))
+    ));
 }
