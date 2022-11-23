@@ -26,9 +26,17 @@
 //!     Decode(DecodeError),
 //! }
 //!
-//! fn connect() -> Result<Socket, Error> { Ok(Socket) }
-//! fn read(sock: &mut Socket) -> Result<Bytes, Error> { Ok(Bytes) }
-//! fn decode(bytes: Bytes) -> Result<Message, Error> { Err(Error::Decode(DecodeError)) }
+//! fn connect() -> Result<Socket, Error> {
+//!     Ok(Socket)
+//! }
+//!
+//! fn read(sock: &mut Socket) -> Result<Bytes, Error> {
+//!     Ok(Bytes)
+//! }
+//!
+//! fn decode(bytes: Bytes) -> Result<Message, Error> {
+//!     Err(Error::Decode(DecodeError))
+//! }
 //! ```
 //!
 //! The same error enum is used all over the place and exposes variants that do
@@ -61,8 +69,14 @@
 //!     }
 //! }
 //!
-//! fn read(sock: &mut Socket) -> Result<Bytes, ReadError> { Ok(Bytes) }
-//! fn decode(bytes: Bytes) -> Result<Message, DecodeError> { Err(DecodeError) }
+//! fn read(sock: &mut Socket) -> Result<Bytes, ReadError> {
+//!     Ok(Bytes)
+//! }
+//!
+//! fn decode(bytes: Bytes) -> Result<Message, DecodeError> {
+//!     Err(DecodeError)
+//! }
+//!
 //! fn next_message(sock: &mut Socket) -> Result<Message, NextMessageError> {
 //!     let payload = read(sock)?;
 //!     let message = decode(payload)?;
@@ -92,9 +106,18 @@
 //!
 //! use partial::Error as E;
 //!
-//! fn connect() -> Result<Socket, E<ConnectError, !, !>> { Ok(Socket) }
-//! fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> { Ok(Bytes) }
-//! fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> { Err(DecodeError)? }
+//! fn connect() -> Result<Socket, E<ConnectError, !, !>> {
+//!     Ok(Socket)
+//! }
+//!
+//! fn read(sock: &mut Socket) -> Result<Bytes, E<!, ReadError, !>> {
+//!     Ok(Bytes)
+//! }
+//!
+//! fn decode(bytes: Bytes) -> Result<Message, E<!, !, DecodeError>> {
+//!     Err(DecodeError)?
+//! }
+//!
 //! fn next_message(sock: &mut Socket) -> Result<Message, E<!, ReadError, DecodeError>> {
 //!     let payload = read(sock)?;
 //!     let message = decode(payload)?;
