@@ -171,6 +171,13 @@
 //! }
 //! # }
 //! ```
+//!
+//! # Rust version
+//!
+//! By default, the empty placeholder is the unit type `()`. The generated code
+//! is compatible with the stable compiler. When the `never` feature is enabled,
+//! the never type `!` is used instead. This requires a nightly compiler and the
+//! nightly feature `#![feature(never_type)]`.
 
 extern crate proc_macro;
 use permutation::Permutations;
@@ -179,8 +186,10 @@ use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{
     parse::{Parse, ParseStream},
+    punctuated::Punctuated,
     spanned::Spanned,
-    Fields, Ident, ItemEnum, Token, Type, TypeNever, Visibility,
+    token::Paren,
+    Fields, Ident, ItemEnum, Token, Type, TypeNever, TypeTuple, Visibility,
 };
 
 mod permutation;
@@ -313,6 +322,7 @@ impl Enum {
     fn to_tokens(&self) -> impl ToTokens {
         let enum_vis = &self.vis;
         let enum_name = quote::format_ident!("{}", self.ident);
+        let empty_type = empty_token();
 
         let mut variant_generics = vec![];
         let mut variant_traits = vec![];
@@ -394,7 +404,7 @@ impl Enum {
                 #(
                 pub trait #variant_traits {}
                 impl #variant_traits for #variant_types {}
-                impl #variant_traits for ! {}
+                impl #variant_traits for #empty_type {}
                 )*
 
                 #(#from_impls)*
@@ -404,16 +414,23 @@ impl Enum {
 
     fn generate_all_partial_enums(&self) -> Vec<PartialEnum> {
         let span = Span::call_site();
-        let never_type = Type::Never(TypeNever {
-            bang_token: Token![!]([span]),
-        });
+        let empty_type = if cfg!(feature = "never") {
+            Type::Never(TypeNever {
+                bang_token: Token![!]([span]),
+            })
+        } else {
+            Type::Tuple(TypeTuple {
+                paren_token: Paren { span },
+                elems: Punctuated::new(),
+            })
+        };
 
         let mut enums = vec![];
         for perm in Permutations::new(self.variants.len()) {
             let mut enum_ = self.0.clone();
             for (i, is_concrete) in perm.enumerate() {
                 if !is_concrete {
-                    enum_.variants[i].typ = never_type.clone();
+                    enum_.variants[i].typ = empty_type.clone();
                 }
             }
             enums.push(enum_);
@@ -474,5 +491,13 @@ impl Variant {
 impl PartialEq for Variant {
     fn eq(&self, other: &Self) -> bool {
         self.ident == other.ident && self.is_concrete() == other.is_concrete()
+    }
+}
+
+fn empty_token() -> impl ToTokens {
+    if cfg!(feature = "never") {
+        quote::quote!(!)
+    } else {
+        quote::quote!(())
     }
 }
